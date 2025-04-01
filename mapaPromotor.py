@@ -62,27 +62,27 @@ df['LONGITUDE']      = pd.to_numeric(df['LONGITUDE'], errors='coerce')
 if 'NOME FANTASIA' not in df.columns:
     print("A coluna 'NOME FANTASIA' não foi encontrada. Verifique o nome da coluna que contém o nome da loja.")
 
-# Certifica que a coluna TIPO exista e remove linhas com dados faltantes relevantes
-if 'TIPO' not in df.columns:
-    print("A coluna 'TIPO' não foi encontrada. Verifique se o arquivo possui essa coluna.")
-df = df.dropna(subset=['PROMOTOR', 'LATITUDE', 'LONGITUDE', 'TIPO'])
+# Certifica que a coluna SUPERVISOR exista e remove linhas com dados faltantes relevantes
+if 'SUPERVISOR' not in df.columns:
+    print("A coluna 'SUPERVISOR' não foi encontrada. Verifique se o arquivo possui essa coluna.")
+df = df.dropna(subset=['PROMOTOR', 'LATITUDE', 'LONGITUDE', 'SUPERVISOR'])
 
-# Cria um dicionário com as informações dos promotores: casa e TIPO
+# Cria um dicionário com as informações dos promotores: casa e SUPERVISOR
 promotores = df['PROMOTOR'].unique()
 promoter_info = {}
 for promotor in promotores:
     df_prom = df[df['PROMOTOR'] == promotor]
     home_coords = [df_prom.iloc[0]['LATITUDE CASA'], df_prom.iloc[0]['LONGITUDE CASA']]
-    tipo = df_prom.iloc[0]['TIPO']
-    promoter_info[promotor] = {'home': home_coords, 'tipo': tipo}
+    SUPERVISOR = df_prom.iloc[0]['SUPERVISOR']
+    promoter_info[promotor] = {'home': home_coords, 'SUPERVISOR': SUPERVISOR}
 
-# Função de atribuição considerando apenas promotores com o mesmo TIPO
-def assign_promoter(store_coord, store_tipo, promoter_info):
+# Função de atribuição considerando apenas promotores com o mesmo SUPERVISOR
+def assign_promoter(store_coord, store_SUPERVISOR, promoter_info):
     best = None
     best_dist = float('inf')
     for promotor, info in promoter_info.items():
-        # Apenas considera se o TIPO do promotor for igual ao TIPO da loja
-        if info['tipo'] != store_tipo:
+        # Apenas considera se o SUPERVISOR do promotor for igual ao SUPERVISOR da loja
+        if info['SUPERVISOR'] != store_SUPERVISOR:
             continue
         d = haversine_distance(store_coord, info['home'])
         if d < best_dist:
@@ -90,9 +90,9 @@ def assign_promoter(store_coord, store_tipo, promoter_info):
             best = promotor
     return best
 
-# Atribui a cada loja um promotor otimizado conforme o TIPO
+# Atribui a cada loja um promotor otimizado conforme o SUPERVISOR
 df['PROMOTOR_OTIMIZADO'] = df.apply(
-    lambda row: assign_promoter([row['LATITUDE'], row['LONGITUDE']], row['TIPO'], promoter_info),
+    lambda row: assign_promoter([row['LATITUDE'], row['LONGITUDE']], row['SUPERVISOR'], promoter_info),
     axis=1
 )
 
@@ -107,7 +107,7 @@ for i, promotor in enumerate(promotores):
 mapa = folium.Map(location=[-3.7424091, -38.4867581], zoom_start=13)
 route_distances = {}
 
-# Agrupa as lojas pelo promotor otimizado (já considerando TIPO)
+# Agrupa as lojas pelo promotor otimizado (já considerando SUPERVISOR)
 groups = df.groupby('PROMOTOR_OTIMIZADO')
 for promotor_ot, group_df in groups:
     # Recupera a casa do promotor a partir do dicionário
