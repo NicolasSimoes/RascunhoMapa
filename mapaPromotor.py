@@ -62,7 +62,6 @@ df['LONGITUDE']      = pd.to_numeric(df['LONGITUDE'], errors='coerce')
 if 'NOME FANTASIA' not in df.columns:
     print("A coluna 'NOME FANTASIA' não foi encontrada. Verifique o nome da coluna que contém o nome da loja.")
 
-# Certifica que a coluna SUPERVISOR exista e remove linhas com dados faltantes relevantes
 if 'SUPERVISOR' not in df.columns:
     print("A coluna 'SUPERVISOR' não foi encontrada. Verifique se o arquivo possui essa coluna.")
 df = df.dropna(subset=['PROMOTOR', 'LATITUDE', 'LONGITUDE', 'SUPERVISOR'])
@@ -81,7 +80,6 @@ def assign_promoter(store_coord, store_SUPERVISOR, promoter_info):
     best = None
     best_dist = float('inf')
     for promotor, info in promoter_info.items():
-        # Apenas considera se o SUPERVISOR do promotor for igual ao SUPERVISOR da loja
         if info['SUPERVISOR'] != store_SUPERVISOR:
             continue
         d = haversine_distance(store_coord, info['home'])
@@ -104,67 +102,114 @@ cores_promotor = {}
 for i, promotor in enumerate(promotores):
     cores_promotor[promotor] = cores[i % len(cores)]
 
+# Cria o mapa
 mapa = folium.Map(location=[-3.7424091, -38.4867581], zoom_start=13)
 route_distances = {}
 
-# Agrupa as lojas pelo promotor otimizado (já considerando SUPERVISOR)
+# Cria os grupos de camada para os supervisores (serão duas opções conforme os valores da coluna SUPERVISOR)
+supervisor_feature_groups = {}
+for supervisor in df['SUPERVISOR'].unique():
+    supervisor_feature_groups[supervisor] = folium.FeatureGroup(name=f"Supervisor {supervisor}", show=False)
+    supervisor_feature_groups[supervisor].add_to(mapa)
+
+# Cria os grupos de camada individuais para os promotores
+# Estes continuarão aparecendo no filtro com o nome de cada promotor.
 groups = df.groupby('PROMOTOR_OTIMIZADO')
 for promotor_ot, group_df in groups:
-    # Recupera a casa do promotor a partir do dicionário
-    home = promoter_info[promotor_ot]['home']
+    supervisor = promoter_info[promotor_ot]['SUPERVISOR']
     
+    # Cria o grupo do promotor
+    fg_promotor = folium.FeatureGroup(name=f"Promotor {promotor_ot}", show=False)
+    
+    home = promoter_info[promotor_ot]['home']
     store_data = group_df[['LATITUDE', 'LONGITUDE', 'NOME FANTASIA']].values.tolist()
     points = [home] + [(lat, lon) for lat, lon, _ in store_data]
 
+    # Se houver apenas a casa do promotor (sem lojas)
     if len(points) == 1:
-        fg = folium.FeatureGroup(name=f"Promotor {promotor_ot}", show=False)
-        folium.Marker(
+        marker_prom = folium.Marker(
             location=home,
             popup=f"Casa do Promotor {promotor_ot}",
             icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
-        ).add_to(fg)
-        fg.add_to(mapa)
+        )
+        marker_prom.add_to(fg_promotor)
+        # Adiciona também no grupo do supervisor
+        marker_prom_sup = folium.Marker(
+            location=home,
+            popup=f"Casa do Promotor {promotor_ot}",
+            icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
+        )
+        marker_prom_sup.add_to(supervisor_feature_groups[supervisor])
+        
         route_distances[promotor_ot] = 0
+        fg_promotor.add_to(mapa)
         continue
 
     dist_matrix = create_distance_matrix(points)
     route = solve_tsp(dist_matrix)
     if route is None:
-        fg = folium.FeatureGroup(name=f"Promotor {promotor_ot} - Rota não otimizada", show=False)
-        folium.Marker(
+        marker_prom = folium.Marker(
             location=home,
             popup=f"Casa do Promotor {promotor_ot} - Rota não otimizada",
             icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
-        ).add_to(fg)
-        fg.add_to(mapa)
+        )
+        marker_prom.add_to(fg_promotor)
+        marker_prom_sup = folium.Marker(
+            location=home,
+            popup=f"Casa do Promotor {promotor_ot} - Rota não otimizada",
+            icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
+        )
+        marker_prom_sup.add_to(supervisor_feature_groups[supervisor])
         route_distances[promotor_ot] = 0
+        fg_promotor.add_to(mapa)
         continue
 
     route_coords = [points[i] for i in route]
-    total_distance = 0
-    for i in range(len(route) - 1):
-        total_distance += dist_matrix[route[i]][route[i+1]]
+    total_distance = sum(dist_matrix[route[i]][route[i+1]] for i in range(len(route)-1))
     route_distance_km = total_distance / 1000.0
     route_distances[promotor_ot] = route_distance_km
 
-    fg = folium.FeatureGroup(name=f"Promotor {promotor_ot}", show=False)
-    folium.Marker(
+    # Marcador da casa do promotor (adicionado em ambos os grupos)
+    marker_home_prom = folium.Marker(
         location=home,
         popup=f"Casa do Promotor {promotor_ot}",
         icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
-    ).add_to(fg)
+    )
+    marker_home_prom.add_to(fg_promotor)
+    marker_home_sup = folium.Marker(
+        location=home,
+        popup=f"Casa do Promotor {promotor_ot}",
+        icon=folium.Icon(color=cores_promotor[promotor_ot], icon='home', prefix='fa')
+    )
+    marker_home_sup.add_to(supervisor_feature_groups[supervisor])
+    
+    # Marcadores das lojas (em ambos os grupos)
     for lat, lon, nome_loja in store_data:
-        folium.Marker(
+        marker_store_prom = folium.Marker(
             location=[lat, lon],
             popup=nome_loja,
             icon=folium.Icon(color=cores_promotor[promotor_ot])
-        ).add_to(fg)
-    folium.PolyLine(route_coords, color=cores_promotor[promotor_ot], weight=3, dash_array='5,10').add_to(fg)
-    fg.add_to(mapa)
+        )
+        marker_store_prom.add_to(fg_promotor)
+        
+        marker_store_sup = folium.Marker(
+            location=[lat, lon],
+            popup=nome_loja,
+            icon=folium.Icon(color=cores_promotor[promotor_ot])
+        )
+        marker_store_sup.add_to(supervisor_feature_groups[supervisor])
+    
+    # Linha da rota (adicionada em ambos os grupos)
+    polyline_prom = folium.PolyLine(route_coords, color=cores_promotor[promotor_ot], weight=3, dash_array='5,10')
+    polyline_prom.add_to(fg_promotor)
+    polyline_sup = folium.PolyLine(route_coords, color=cores_promotor[promotor_ot], weight=3, dash_array='5,10')
+    polyline_sup.add_to(supervisor_feature_groups[supervisor])
+    
+    fg_promotor.add_to(mapa)
 
 folium.LayerControl().add_to(mapa)
 mapa.save("teste.html")
-print("Mapa otimizado salvo como 'mapa_promotores_otimizado_reatribuido.html'")
+print("Mapa otimizado salvo como 'teste.html'")
 
 with open("quilometragem_total.txt", "w", encoding="utf-8") as file:
     for promotor, distance in route_distances.items():
